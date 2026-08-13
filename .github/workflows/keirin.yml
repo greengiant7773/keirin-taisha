@@ -1,0 +1,112 @@
+name: keirin
+
+# 時刻はUTC。日本時間 = UTC + 9時間
+on:
+  schedule:
+    - cron: "0 21 * * *"    # JST 06:00  データ取得
+    - cron: "0 10 * * *"    # JST 19:00  翌日分の生成と投稿
+    - cron: "0 11 * * 0"    # JST 20:00(日) 代謝ボーダー
+  workflow_dispatch:         # 手動実行用。最初はこれで試す
+    inputs:
+      job:
+        description: "実行する処理"
+        required: true
+        default: scrape
+        type: choice
+        options: [scrape, alert, taisha]
+      post:
+        description: "実際に投稿する(false ならプレビューのみ)"
+        required: true
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+# 同時に走らないようにする(スナップショットの取り合いを防ぐ)
+concurrency:
+  group: keirin
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # スナップショットをコミットするため
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 依存をインストール
+        run: pip install requests beautifulsoup4 requests-oauthlib
+
+      - name: どの処理を走らせるか決める
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "job=${{ inputs.job }}" >> $GITHUB_OUTPUT
+            echo "post=${{ inputs.post }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "0 21 * * *" ]; then
+            echo "job=scrape" >> $GITHUB_OUTPUT
+            echo "post=false" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "0 10 * * *" ]; then
+            echo "job=alert" >> $GITHUB_OUTPUT
+            echo "post=true" >> $GITHUB_OUTPUT
+          else
+            echo "job=taisha" >> $GITHUB_OUTPUT
+            echo "post=true" >> $GITHUB_OUTPUT
+          fi
+
+      # ---- データ取得(朝) ----
+      - name: スナップショット取得
+        if: steps.pick.outputs.job == 'scrape'
+        run: python scrape.py all
+
+      # ---- 勝負駆けアラート(夜) ----
+      - name: 翌日分の投稿文を生成
+        if: steps.pick.outputs.job == 'alert'
+        run: python shobugake.py
+
+      # ---- 代謝ボーダー(週1) ----
+      - name: 代謝ボーダーを生成
+        if: steps.pick.outputs.job == 'taisha'
+        run: python taisha.py --write
+
+      # ---- 投稿 ----
+      - name: 投稿
+        if: steps.pick.outputs.job != 'scrape'
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        run: |
+          if [ "${{ steps.pick.outputs.post }}" = "true" ]; then
+            if [ "${{ steps.pick.outputs.job }}" = "taisha" ]; then
+              python post.py 0 --post
+            else
+              python post.py --post
+            fi
+          else
+            echo "プレビューのみ(投稿しません)"
+            if [ "${{ steps.pick.outputs.job }}" = "taisha" ]; then
+              python post.py 0
+            else
+              python post.py
+            fi
+          fi
+
+      # ---- 結果を保存 ----
+      - name: スナップショットと投稿履歴をコミット
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add -A snapshots posts posted.log 2>/dev/null || true
+          if git diff --cached --quiet; then
+            echo "変更なし"
+          else
+            git commit -m "auto: ${{ steps.pick.outputs.job }} $(date -u +%Y-%m-%d)"
+            git push
+          fi
