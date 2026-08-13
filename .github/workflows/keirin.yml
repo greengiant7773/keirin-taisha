@@ -103,10 +103,16 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "actions@github.com"
-          git add -A snapshots posts posted.log 2>/dev/null || true
+          # 存在するものだけを個別に追加する。
+          # まとめて git add すると、片方が無いだけで全部追加されない
+          for p in snapshots posts posted.log; do
+            if [ -e "$p" ]; then git add "$p"; fi
+          done
+          git status --short
           if git diff --cached --quiet; then
             echo "変更なし"
           else
             git commit -m "auto: ${{ steps.pick.outputs.job }} $(date -u +%Y-%m-%d)"
+            git pull --rebase
             git push
           fi
