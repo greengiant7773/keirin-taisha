@@ -17,8 +17,15 @@ from datetime import date
 BADGE = re.compile(r"setP-(normal|Wcircle|Bcircle)-([0-9A-Za-z]+)\.png", re.I)
 DATE = re.compile(r"^(\d{2})/(\d{2})$")
 
-# 着順以外の記号。凡例より
-SPECIAL = {"M": "未実施"}
+# 着順以外の記号(ローマ字の頭文字)。評価点から3点引かれるのは失格だけ。
+SPECIAL = {
+    "S": "失格",       # Shikkaku  -> 評価点 -3
+    "R": "落車",       # Rakusha
+    "Ke": "棄権",      # Kiken
+    "to": "途中欠場",  # 途
+    "M": "未実施",
+}
+DQ_CODES = {"S"}      # 減点対象
 
 
 def term_range(today: date) -> tuple[date, date]:
@@ -33,7 +40,8 @@ def parse_recent(soup, today: date | None = None) -> dict:
     today = today or date.today()
     start, end = term_range(today)
 
-    out = {"starts": 0, "places": [], "dq": 0, "absent": 0, "meets": 0}
+    out = {"starts": 0, "places": [], "dq": 0, "absent": 0, "meets": 0,
+           "marks": []}
 
     for cell in soup.find_all("table", class_="seiseki_kobetsu"):
         text = cell.get_text("\n", strip=True)
@@ -66,9 +74,10 @@ def parse_recent(soup, today: date | None = None) -> dict:
             if val.isdigit():
                 out["starts"] += 1
                 out["places"].append((kind, int(val)))
-            elif val.upper() not in SPECIAL:
-                # 数字でも未実施でもない = 失格・落車・欠場など
-                out["dq"] += 1
+            else:
+                out["marks"].append(val)
+                if val in DQ_CODES:      # 失格だけが減点対象
+                    out["dq"] += 1
     return out
 
 
