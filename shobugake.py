@@ -22,7 +22,8 @@ from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 
-from border import class_borders, near_line
+from border import class_borders, near_line, rating
+from results import needed_average
 from schedule import load_month, races_on
 
 HERE = Path(__file__).parent
@@ -103,8 +104,15 @@ TRACKS = [
 
 def contenders(snap: list[dict]):
     """各ライン付近の選手と、ライン値一式。"""
-    alive = [{**r, "score": Decimal(r["score"])}
-             for r in snap if not r.get("retired") and r.get("score")]
+    # 級班は「平均競走得点 - 失格点」で決まるので、評価点に直してから並べる
+    alive = []
+    for r in snap:
+        if r.get("retired") or not r.get("score"):
+            continue
+        raw = Decimal(r["score"])
+        dq = int(r.get("dq") or 0)
+        alive.append({**r, "score": rating(raw, dq), "raw": raw, "dq": dq,
+                      "starts": int(r.get("starts") or 0)})
     lines = class_borders(alive)
 
     out = []
@@ -131,7 +139,12 @@ def build_post(slot: str, venues: list[str], riders: list[dict],
         elif g == 0:
             state = "ライン上"
         else:
+            # 残り3走でラインに乗せるのに必要な平均。届かない水準なら「厳しい」
+            need = needed_average(border, r["score"] * r["starts"],
+                                  r["starts"], 3) if r.get("starts") else None
             state = f"あと{-g}"
+            if need is not None and need > 100:
+                state += "/3走では届かず"
         return f"・{r['name']}({grade}) {r['score']}［{state}］"
 
     lines = [fmt(r) for r in riders[:MAX_RIDERS]]

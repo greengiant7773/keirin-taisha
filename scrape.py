@@ -21,6 +21,8 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
+from results import parse_recent
+
 # ---------------------------------------------------------------- 設定
 
 BASE = "https://keirin.jp/pc/racerprofile?snum={}"
@@ -62,6 +64,8 @@ def parse(html: str) -> dict:
         "score": None,       # 今期得点
         "entries": [],       # 出場予定 [(開催場, 開始, 終了), ...]
         "racing_now": "",    # 開催中のレースの開催場
+        "starts": 0,         # 今期の出走回数
+        "dq": 0,             # 今期の失格等の回数
         "retired": False,
     }
 
@@ -84,6 +88,11 @@ def parse(html: str) -> dict:
         jo = m2.group(1).replace("　", "").strip()
         if jo and "出場しており" not in jo:
             out["racing_now"] = jo
+
+    # 今期の出走回数と失格回数(「最近の成績」の着順アイコンから数える)
+    rec = parse_recent(soup)
+    out["starts"] = rec["starts"]
+    out["dq"] = rec["dq"]
 
     # 級班の履歴情報: [(級班, 年月日), ...] 新しい順
     out["grade_history"] = extract_grade_history(text)
@@ -190,13 +199,27 @@ def mode_test() -> None:
     print(f"今期得点  : {got['score']}")
     print(f"出場予定  : {got['entries']}")
     print(f"開催中    : {got.get('racing_now') or '(なし)'}")
+    print(f"今期出走  : {got.get('starts')}走  失格等 {got.get('dq')}回")
     print(f"級班履歴  : {got.get('grade_history')}")
     print(f"引退      : {got['retired']}")
-    print("\n期待値: 級班 A3 / 今期得点 66.11 / 出場予定 3件")
-    if got["score"] == Decimal("66.11"):
-        print("→ 一致。本番を実行できます。")
+    # 得点は開催のたびに動くので固定値では判定しない。
+    # 「今期得点 × 出走回数」が整数になるかで、両方の取得が正しいか検算する。
+    ok = []
+    ok.append(("級班", got["grade"] == "A3"))
+    ok.append(("今期得点", got["score"] is not None))
+    ok.append(("出場予定", len(got["entries"]) > 0))
+    ok.append(("出走回数", got.get("starts", 0) > 0))
+    if got["score"] is not None and got.get("starts"):
+        total = got["score"] * got["starts"]
+        ok.append((f"検算(合計{total})", total == total.to_integral_value()))
+
+    print()
+    for name, good in ok:
+        print(f"  {'OK ' if good else 'NG '} {name}")
+    if all(g for _, g in ok):
+        print("\n→ すべて正常。本番を実行できます。")
     else:
-        print("→ 不一致。debug.html を渡してパーサーを直します。")
+        print("\n→ NGあり。debug.html を渡してパーサーを直します。")
 
 
 def mode_scrape(grades: list[str]) -> None:
@@ -222,7 +245,7 @@ def mode_scrape(grades: list[str]) -> None:
         w = csv.writer(f)
         if new:
             w.writerow(["reg_no", "name", "grade", "score", "entries",
-                        "racing_now", "retired"])
+                        "racing_now", "starts", "dq", "retired"])
 
         for i, r in enumerate(todo, 1):
             try:
@@ -232,6 +255,8 @@ def mode_scrape(grades: list[str]) -> None:
                     got["score"] if got["score"] is not None else "",
                     ";".join(f"{jo}@{a}-{b}" for jo, a, b in got["entries"]),
                     got.get("racing_now", ""),
+                    got.get("starts", 0),
+                    got.get("dq", 0),
                     "1" if got["retired"] else "",
                 ])
                 f.flush()
