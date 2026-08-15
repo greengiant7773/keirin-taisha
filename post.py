@@ -1,16 +1,18 @@
 """
 X への投稿
 
-  python post.py            … 明日分をプレビューするだけ(投稿しない)
-  python post.py --post     … 実際に投稿する
-  python post.py 8/20       … 指定日をプレビュー
-  python post.py 8/20 --post
+  python post.py                    … 明日分の全時間帯をプレビュー
+  python post.py --post             … 明日分の全時間帯を投稿
+  python post.py --slot モーニング   … 指定した時間帯のファイルだけ対象
+  python post.py 8/20 --slot デイ --post
 
 事故防止のため:
   - 既定はプレビュー。--post を付けたときだけ実際に投稿する
   - 投稿済みは posted.log に記録し、二度と投稿しない
   - 1回の実行で投稿できる本数に上限(MAX_PER_RUN)を設ける
   - URLを含む投稿は課金が跳ね上がるため、含んでいたら止める
+  - --slot を指定すると、ファイル名にその文字列を含むものだけを対象にする。
+    該当ファイルが無ければ何も出さずに終了する(該当なしの日は投稿しない)。
 
 必要なもの:
   pip install requests requests-oauthlib
@@ -80,10 +82,13 @@ def send(text: str, oauth) -> str:
     return r.json()["data"]["id"]
 
 
-def main(target: date, do_post: bool) -> None:
+def main(target: date, do_post: bool, slot: str | None) -> None:
     files = sorted(OUTDIR.glob(f"{target:%Y%m%d}_*.txt"))
+    if slot:
+        files = [p for p in files if slot in p.stem]
     if not files:
-        print(f"{target:%m/%d} の投稿文がありません。先に shobugake.py を実行してください")
+        label = f"（{slot}）" if slot else ""
+        print(f"{target:%m/%d}{label} の投稿文がありません。該当なしとして終了します。")
         return
 
     done = already_posted()
@@ -125,12 +130,20 @@ def main(target: date, do_post: bool) -> None:
 
 
 if __name__ == "__main__":
-    args = [a for a in sys.argv[1:] if a != "--post"]
-    do_post = "--post" in sys.argv
-    arg = args[0] if args else "1"
+    raw = sys.argv[1:]
+    do_post = "--post" in raw
+
+    slot = None
+    if "--slot" in raw:
+        i = raw.index("--slot")
+        slot = raw[i + 1]
+        raw = raw[:i] + raw[i + 2:]
+    raw = [a for a in raw if a != "--post"]
+
+    arg = raw[0] if raw else "1"
     if "/" in arg:
         m, d = map(int, arg.split("/"))
         t = date(date.today().year, m, d)
     else:
         t = date.today() + timedelta(days=int(arg))
-    main(t, do_post)
+    main(t, do_post, slot)
