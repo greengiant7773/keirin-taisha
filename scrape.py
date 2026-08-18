@@ -21,7 +21,7 @@ from pathlib import Path
 import requests
 from bs4 import BeautifulSoup
 
-from results import parse_recent
+from results import parse_recent, recent_form
 
 # ---------------------------------------------------------------- 設定
 
@@ -66,6 +66,8 @@ def parse(html: str) -> dict:
         "racing_now": "",    # 開催中のレースの開催場
         "starts": 0,         # 今期の出走回数
         "dq": 0,             # 今期の失格等の回数
+        "form_emoji": "",    # 直近5走の絶好調(🚀)/不調(🥺)バッジ
+        "form_avg": None,    # 直近5走の平均着順(参考値)
         "retired": False,
     }
 
@@ -93,6 +95,10 @@ def parse(html: str) -> dict:
     rec = parse_recent(soup)
     out["starts"] = rec["starts"]
     out["dq"] = rec["dq"]
+
+    form = recent_form(soup)
+    out["form_emoji"] = form["emoji"]
+    out["form_avg"] = form["avg5"]
 
     # 級班の履歴情報: [(級班, 年月日), ...] 新しい順
     out["grade_history"] = extract_grade_history(text)
@@ -200,6 +206,8 @@ def mode_test() -> None:
     print(f"出場予定  : {got['entries']}")
     print(f"開催中    : {got.get('racing_now') or '(なし)'}")
     print(f"今期出走  : {got.get('starts')}走  失格等 {got.get('dq')}回")
+    print(f"直近の調子: {got.get('form_emoji') or '(判定対象外)'}  "
+          f"平均着順{got.get('form_avg')}")
     print(f"級班履歴  : {got.get('grade_history')}")
     print(f"引退      : {got['retired']}")
     # 得点は開催のたびに動くので固定値では判定しない。
@@ -245,7 +253,8 @@ def mode_scrape(grades: list[str]) -> None:
         w = csv.writer(f)
         if new:
             w.writerow(["reg_no", "name", "grade", "score", "entries",
-                        "racing_now", "starts", "dq", "retired"])
+                        "racing_now", "starts", "dq", "form_emoji",
+                        "form_avg", "retired"])
 
         for i, r in enumerate(todo, 1):
             try:
@@ -257,6 +266,8 @@ def mode_scrape(grades: list[str]) -> None:
                     got.get("racing_now", ""),
                     got.get("starts", 0),
                     got.get("dq", 0),
+                    got.get("form_emoji", ""),
+                    got.get("form_avg") if got.get("form_avg") is not None else "",
                     "1" if got["retired"] else "",
                 ])
                 f.flush()

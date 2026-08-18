@@ -145,7 +145,9 @@ def build_post(slot: str, venues: list[str], riders: list[dict],
             state = f"あと{-g}"
             if need is not None and need > 100:
                 state += "/3走では届かず"
-        return f"・{r['name']}({grade}) {r['score']}［{state}］"
+        emoji = r.get("form_emoji") or ""
+        badge = f" {emoji}" if emoji else ""
+        return f"・{r['name']}({grade}) {r['score']}［{state}］{badge}"
 
     lines = [fmt(r) for r in riders[:MAX_RIDERS]]
     rest = len(riders) - len(lines)
