@@ -30,8 +30,8 @@ DQ_CODES = {"S"}      # 減点対象
 # 直近5走の絶好調/不調バッジ判定
 FORM_MIN_STARTS = 3          # これ未満の走数しかなければ判定しない(サンプル不足)
 FORM_STALE_DAYS = 30         # 最終出走からこの日数を超えたら判定しない(休養明け対策)
-FORM_HOT_AVG = 2.0           # 平均着順がこれ以下 -> 🚀
-FORM_COLD_AVG = 5.5          # 平均着順がこれ以上 -> 🥺
+FORM_HOT_AVG = 3.0           # 平均着順がこれ以下 -> 🚀 (旧2.0。出現が少なすぎたため緩和)
+FORM_COLD_AVG = 4.5          # 平均着順がこれ以上 -> 🥺 (旧5.5。同上)
 
 
 def term_range(today: date) -> tuple[date, date]:

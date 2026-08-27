@@ -16,6 +16,7 @@
 """
 
 import csv
+import re
 import sys
 import unicodedata
 from datetime import date, timedelta
@@ -125,11 +126,23 @@ def contenders(snap: list[dict]):
 
 # ---------------------------------------------------------------- 出力
 
+def hashtags(venues: list[str]) -> str:
+    """開催場名から '#〇〇競輪' を作り、固定の '#競輪' と組み合わせる。
+    venues は 'F2' 等のグレード付き表記なので、場名部分だけを取り出す。
+    複数開催なら先頭1つだけ使う(タグを付けすぎると逆に読みにくくなる)。"""
+    if not venues:
+        return "#競輪"
+    jo = re.sub(r"[A-Zａ-ｚＡ-Ｚ0-9].*$", "", venues[0]).strip()
+    if not jo:
+        return "#競輪"
+    return f"#{jo}競輪 #競輪"
+
+
 def build_post(slot: str, venues: list[str], riders: list[dict],
                d: date, border: Decimal, kind: str) -> str:
     head = f"【{d.month}/{d.day} {slot}・{kind}争い】"
     where = "／".join(venues)
-    foot = f"{kind}ライン{border}\n{DISCLAIMER}"
+    foot = f"{kind}ライン{border}\n{DISCLAIMER}\n{hashtags(venues)}"
 
     def fmt(r):
         g = r["gap"]
