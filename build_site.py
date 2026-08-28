@@ -220,7 +220,7 @@ def taisha_tr(r, compact=False) -> str:
         badge = f'<span class="rk">{r["rank"]}</span>'
     cls = "dgr" if r["in_danger"] else "safe"
     hist = ("" if compact else
-            f'<td class="num hist">{r["t1"]} / {r["t2"]}</td>')
+            f'<td class="num hist">{r["t2"]}</td>')
     return (f'<tr class="{cls}"><td>{badge}</td>'
             f'<td class="nm">{H.escape(r["name"])}'
             f'<span class="sub">{H.escape(r.get("pref", ""))}</span></td>'
@@ -455,9 +455,9 @@ def render_taisha(d) -> str:
     body = f"""
 <section class="tai" style="margin-top:26px">
   <h2>代謝危機ランキング</h2>
-  <p class="lede">男子A3で直近2期連続70点未満かつ3期平均70点未満が対象。3期平均の下位{QUOTA}名が登録消除。対象{len(d["t_rows"])}名・うち消除圏内{n_danger}名。内訳は 2025後期 / 2026前期。</p>
+          <p class="lede">男子A3で直近2期連続70点未満かつ3期平均70点未満が対象。3期平均の下位{QUOTA}名が登録消除。対象{len(d["t_rows"])}名。「前期」は2026前期の得点。</p>
   <table>
-    <thead><tr><th>順位</th><th>選手</th><th>3期平均</th><th>内訳</th></tr></thead>
+    <thead><tr><th>順位</th><th>選手</th><th>3期平均</th><th>前期</th></tr></thead>
     <tbody>{taisha_rows(d["t_rows"], d["t_border"])}</tbody>
   </table>
   <p class="legend">□ 枠番色の1〜9位はもっとも消除に近い9名。ライン帯より下は現時点で消除を免れている選手。</p>
