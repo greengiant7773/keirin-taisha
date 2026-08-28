@@ -1,0 +1,153 @@
+name: keirin
+
+# 時刻はUTC。日本時間 = UTC + 9時間
+#
+# 設計:
+#  1. 06:00 JST … その日のデータを取得(scrape)
+#  2. 19:00 JST … 翌日分の投稿文を"生成だけ"しておく(まだ投稿しない)
+#  3. 当日、各時間帯の直前 … 前日に生成済みの投稿文を、その時間帯の分だけ送る
+#     出場予定は開催が始まると消えるため、生成は必ず前日のうちに行う。
+#     投稿は生成済みファイルを読むだけなので、当日の直前に分けても問題ない。
+#  4. 水・日 20:00 JST … 代謝ボーダーを生成して投稿(週2回)
+on:
+  schedule:
+    - cron: "0 21 * * *"    # JST 06:00        データ取得
+    - cron: "0 10 * * *"    # JST 19:00(前日)   翌日分を生成のみ
+    - cron: "0 23 * * *"    # JST 08:00        モーニング投稿
+    - cron: "0 1 * * *"     # JST 10:00        デイ投稿
+    - cron: "30 6 * * *"    # JST 15:30        ナイター投稿
+    - cron: "30 10 * * *"   # JST 19:30        ミッドナイト投稿
+    - cron: "0 11 * * 0,3"  # JST 20:00(日・水) 代謝ボーダー
+  workflow_dispatch:         # 手動実行・動作確認用
+    inputs:
+      job:
+        description: "実行する処理"
+        required: true
+        default: scrape
+        type: choice
+        options: [scrape, generate, post, taisha, site]
+      slot:
+        description: "job=post のときだけ使う時間帯"
+        required: false
+        default: モーニング
+        type: choice
+        options: [モーニング, デイ, ナイター, ミッドナイト]
+      post:
+        description: "実際に投稿する(false ならプレビューのみ)"
+        required: true
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+# 同時に走らないようにする(スナップショットの取り合いを防ぐ)
+concurrency:
+  group: keirin
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # スナップショットをコミットするため
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 依存をインストール
+        run: pip install requests beautifulsoup4 requests-oauthlib
+
+      - name: どの処理を走らせるか決める
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "job=${{ inputs.job }}" >> $GITHUB_OUTPUT
+            echo "slot=${{ inputs.slot }}" >> $GITHUB_OUTPUT
+            echo "post=${{ inputs.post }}" >> $GITHUB_OUTPUT
+          else
+            case "${{ github.event.schedule }}" in
+              "0 21 * * *")   echo "job=scrape"   >> $GITHUB_OUTPUT ;;
+              "0 10 * * *")   echo "job=generate" >> $GITHUB_OUTPUT ;;
+              "0 23 * * *")   echo "job=post"     >> $GITHUB_OUTPUT
+                              echo "slot=モーニング" >> $GITHUB_OUTPUT ;;
+              "0 1 * * *")    echo "job=post"     >> $GITHUB_OUTPUT
+                              echo "slot=デイ"      >> $GITHUB_OUTPUT ;;
+              "30 6 * * *")   echo "job=post"     >> $GITHUB_OUTPUT
+                              echo "slot=ナイター"   >> $GITHUB_OUTPUT ;;
+              "30 10 * * *")  echo "job=post"     >> $GITHUB_OUTPUT
+                              echo "slot=ミッドナイト" >> $GITHUB_OUTPUT ;;
+              "0 11 * * 0,3") echo "job=taisha"   >> $GITHUB_OUTPUT ;;
+            esac
+            echo "post=true" >> $GITHUB_OUTPUT
+          fi
+
+      # ---- データ取得(毎朝) ----
+      - name: スナップショット取得
+        if: steps.pick.outputs.job == 'scrape'
+        run: python scrape.py all
+
+      # ---- 翌日分の投稿文を生成だけする(まだ投稿しない) ----
+      - name: 翌日分の投稿文を生成
+        if: steps.pick.outputs.job == 'generate'
+        run: python shobugake.py
+
+      # ---- 生成済みの投稿文を、時間帯の直前に送る ----
+      - name: 勝負駆けを投稿
+        if: steps.pick.outputs.job == 'post'
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        run: |
+          if [ "${{ steps.pick.outputs.post }}" = "true" ]; then
+            python post.py 0 --slot "${{ steps.pick.outputs.slot }}" --post
+          else
+            python post.py 0 --slot "${{ steps.pick.outputs.slot }}"
+          fi
+
+      # ---- 代謝ボーダー(週2: 水・日) ----
+      - name: 代謝ボーダーを生成
+        if: steps.pick.outputs.job == 'taisha'
+        run: python taisha.py --write
+
+      - name: 代謝ボーダーを投稿
+        if: steps.pick.outputs.job == 'taisha'
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        run: |
+          if [ "${{ steps.pick.outputs.post }}" = "true" ]; then
+            python post.py 0 --post
+          else
+            python post.py 0
+          fi
+
+      # ---- サイト更新(scrape後・taisha後・手動) ----
+      - name: サイトを生成
+        if: steps.pick.outputs.job == 'scrape' || steps.pick.outputs.job == 'taisha' || steps.pick.outputs.job == 'site'
+        run: python build_site.py
+
+      # ---- 結果を保存 ----
+      - name: スナップショットと投稿履歴をコミット
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          # 存在するものだけを個別に追加する。
+          # まとめて git add すると、片方が無いだけで全部追加されない
+          for p in snapshots posts posted.log docs; do
+            if [ -e "$p" ]; then git add "$p"; fi
+          done
+          git status --short
+          if git diff --cached --quiet; then
+            echo "変更なし"
+          else
+            git commit -m "auto: ${{ steps.pick.outputs.job }} ${{ steps.pick.outputs.slot }} $(date -u +%Y-%m-%d)"
+            git pull --rebase
+            git push
+          fi
