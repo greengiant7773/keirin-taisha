@@ -23,7 +23,7 @@ import os
 import re
 import sys
 import unicodedata
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 import requests
@@ -31,6 +31,13 @@ import requests
 API = "https://api.twitter.com/2/tweets"
 HERE = Path(__file__).parent
 OUTDIR = HERE / "posts"
+
+JST = timezone(timedelta(hours=9))
+
+
+def today_jst() -> date:
+    """実行環境はUTCなので、日付は必ず日本時間で決める。"""
+    return datetime.now(JST).date()
 LOG = HERE / "posted.log"
 
 MAX_PER_RUN = 6          # 1回の実行で投稿する上限
@@ -82,12 +89,13 @@ def send(text: str, oauth) -> str:
     return r.json()["data"]["id"]
 
 
-def main(target: date, do_post: bool, slot: str | None) -> None:
+def main(target: date, do_post: bool, slots: list[str]) -> None:
     files = sorted(OUTDIR.glob(f"{target:%Y%m%d}_*.txt"))
-    if slot:
-        files = [p for p in files if slot in p.stem]
+    # --slot は複数指定できる。すべて含むファイルだけを対象にする
+    for s in slots:
+        files = [p for p in files if s in p.stem]
     if not files:
-        label = f"（{slot}）" if slot else ""
+        label = f"（{'/'.join(slots)}）" if slots else ""
         print(f"{target:%m/%d}{label} の投稿文がありません。該当なしとして終了します。")
         return
 
@@ -133,17 +141,17 @@ if __name__ == "__main__":
     raw = sys.argv[1:]
     do_post = "--post" in raw
 
-    slot = None
-    if "--slot" in raw:
+    slots = []
+    while "--slot" in raw:
         i = raw.index("--slot")
-        slot = raw[i + 1]
+        slots.append(raw[i + 1])
         raw = raw[:i] + raw[i + 2:]
     raw = [a for a in raw if a != "--post"]
 
     arg = raw[0] if raw else "1"
     if "/" in arg:
         m, d = map(int, arg.split("/"))
-        t = date(date.today().year, m, d)
+        t = date(today_jst().year, m, d)
     else:
-        t = date.today() + timedelta(days=int(arg))
-    main(t, do_post, slot)
+        t = today_jst() + timedelta(days=int(arg))
+    main(t, do_post, slots)

@@ -15,11 +15,19 @@
 """
 
 import re
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from dataclasses import dataclass
 
 import requests
 from bs4 import BeautifulSoup
+
+JST = timezone(timedelta(hours=9))
+
+
+def today_jst() -> date:
+    """実行環境はUTCなので、日付は必ず日本時間で決める。"""
+    return datetime.now(JST).date()
+
 
 URL = "https://keirin.jp/pc/raceschedule"
 HEADERS = {"User-Agent": "keirin-taisha-bot/0.1 (personal research; low frequency)"}
@@ -115,7 +123,7 @@ def races_on(kaisai: list[Kaisai], d: date) -> list[Kaisai]:
 
 if __name__ == "__main__":
     from datetime import timedelta
-    today = date.today()
+    today = today_jst()
     ks = load_month(today.year, today.month)
     print(f"{today:%Y年%m月} の開催 {len(ks)}件\n")
 

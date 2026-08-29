@@ -19,7 +19,7 @@ import csv
 import re
 import sys
 import unicodedata
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
 
@@ -28,6 +28,14 @@ from results import needed_average
 from schedule import load_month, races_on
 
 HERE = Path(__file__).parent
+
+JST = timezone(timedelta(hours=9))
+
+
+def today_jst() -> date:
+    """実行環境はUTCなので、日付は必ず日本時間で決める。"""
+    return datetime.now(JST).date()
+
 SNAPDIR = HERE / "snapshots"
 OUTDIR = HERE / "posts"
 
@@ -227,7 +235,7 @@ if __name__ == "__main__":
     arg = sys.argv[1] if len(sys.argv) > 1 else "1"
     if "/" in arg:
         m, d = map(int, arg.split("/"))
-        t = date(date.today().year, m, d)
+        t = date(today_jst().year, m, d)
     else:
-        t = date.today() + timedelta(days=int(arg))
+        t = today_jst() + timedelta(days=int(arg))
     main(t)

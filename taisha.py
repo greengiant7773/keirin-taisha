@@ -17,11 +17,19 @@
 import csv
 import sys
 import unicodedata
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
 
 HERE = Path(__file__).parent
+
+JST = timezone(timedelta(hours=9))
+
+
+def today_jst() -> date:
+    """実行環境はUTCなので、日付は必ず日本時間で決める。"""
+    return datetime.now(JST).date()
+
 MASTER = HERE / "history_master.csv"
 SNAPDIR = HERE / "snapshots"
 OUTDIR = HERE / "posts"
@@ -129,12 +137,12 @@ def main(write: bool) -> None:
         print(f"{r['rank']:3d}位 {r['avg']} {r['name']}"
               f"  [{r['t1']}/{r['t2']}/{r['cur']}]{mark}{state}")
 
-    text = build_post(rows, border, date.today())
+    text = build_post(rows, border, today_jst())
     print(f"\n--- 投稿文 ({x_len(text)}字) ---\n{text}")
 
     if write:
         OUTDIR.mkdir(exist_ok=True)
-        p = OUTDIR / f"{date.today():%Y%m%d}_代謝ボーダー.txt"
+        p = OUTDIR / f"{today_jst():%Y%m%d}_代謝ボーダー.txt"
         p.write_text(text, encoding="utf-8")
         print(f"\n-> {p.name}")
 
