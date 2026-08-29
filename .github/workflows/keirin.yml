@@ -18,7 +18,7 @@ on:
         required: true
         default: scrape
         type: choice
-        options: [scrape, generate, post, taisha, site]
+        options: [scrape, generate, post, taisha, site, alert]
       slot:
         description: "job=post のときだけ使う時間帯"
         required: false
@@ -101,7 +101,22 @@ jobs:
           else
             python post.py 0 --slot "${{ steps.pick.outputs.slot }}"
           fi
-
+            # ---- 代謝危機の出走通知(各時間帯の5分後) ----
+      - name: 代謝危機の通知を生成して投稿
+        if: steps.pick.outputs.job == 'alert'
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+        run: |
+          python taisha_alert.py --write
+          if [ "${{ steps.pick.outputs.post }}" = "true" ]; then
+            python post.py 0 --slot "${{ steps.pick.outputs.slot }}" --slot 代謝危機 --post
+          else
+            python post.py 0 --slot "${{ steps.pick.outputs.slot }}" --slot 代謝危機
+          fi
+        
       # ---- 代謝ボーダー(週2: 水・日) ----
       - name: 代謝ボーダーを生成
         if: steps.pick.outputs.job == 'taisha'
