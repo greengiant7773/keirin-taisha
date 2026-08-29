@@ -14,7 +14,7 @@ import csv
 import re
 import sys
 import time
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
 
@@ -39,6 +39,13 @@ HEADERS = {
 }
 
 TEST_ID = "012618"   # 武智尚之。今期得点66.11、出場予定3件が入っている選手
+
+JST = timezone(timedelta(hours=9))
+
+
+def today_jst() -> date:
+  """実行環境はUTCなので、ファイル名は必ず日本時間の日付で決める。"""
+  return datetime.now(JST).date()
 
 
 # ---------------------------------------------------------------- 取得
@@ -235,7 +242,7 @@ def mode_scrape(grades: list[str]) -> None:
     tg = targets(roster, grades)
     print(f"級班: {'/'.join(grades)}")
     SNAPDIR.mkdir(exist_ok=True)
-    outfile = SNAPDIR / f"{date.today():%Y%m%d}.csv"
+        outfile = SNAPDIR / f"{today_jst():%Y%m%d}.csv"
 
     # 中断しても続きから再開できるようにする
     done = set()
