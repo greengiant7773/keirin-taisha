@@ -242,7 +242,7 @@ def mode_scrape(grades: list[str]) -> None:
     tg = targets(roster, grades)
     print(f"級班: {'/'.join(grades)}")
     SNAPDIR.mkdir(exist_ok=True)
-        outfile = SNAPDIR / f"{today_jst():%Y%m%d}.csv"
+    outfile = SNAPDIR / f"{today_jst():%Y%m%d}.csv"
 
     # 中断しても続きから再開できるようにする
     done = set()
