@@ -158,8 +158,7 @@ def main() -> int:
         return 0
 
     try:
-        NoteClient().create_and_publish(title, body,
-                                        hashtags=["競輪", "勝負駆け"])
+        NoteClient().create_and_publish(title, body)
     except NoteError as e:
         print(f"[error] note投稿に失敗: {e}")
         return 1
