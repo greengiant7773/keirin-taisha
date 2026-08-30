@@ -141,11 +141,11 @@ jobs:
         if: steps.pick.outputs.job == 'scrape' || steps.pick.outputs.job == 'taisha' || steps.pick.outputs.job == 'site'
         run: python build_site.py
 
-        # ---- noteに出走まとめを投稿(手動/外部cron) ----
-        - name: noteに勝負駆け・代謝危機まとめを投稿
-          if: steps.pick.outputs.job == 'notepost'
-          env:
-            NOTE_SESSION_COOKIE: ${{ secrets.NOTE_SESSION_COOKIE }}
+      # ---- noteに出走まとめを投稿(手動/外部cron) ----
+      - name: noteに勝負駆け・代謝危機まとめを投稿
+        if: steps.pick.outputs.job == 'notepost'
+        env:
+          NOTE_SESSION_COOKIE: ${{ secrets.NOTE_SESSION_COOKIE }}
         run: python keirin_note.py --post
         
         # ---- 結果を保存 ----
