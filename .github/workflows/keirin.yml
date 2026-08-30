@@ -18,7 +18,7 @@ on:
         required: true
         default: scrape
         type: choice
-        options: [scrape, generate, post, taisha, site, alert]
+        options: [scrape, generate, post, taisha, site, alert, notepost]
       slot:
         description: "job=post のときだけ使う時間帯"
         required: false
@@ -140,6 +140,13 @@ jobs:
       - name: サイトを生成
         if: steps.pick.outputs.job == 'scrape' || steps.pick.outputs.job == 'taisha' || steps.pick.outputs.job == 'site'
         run: python build_site.py
+
+        # ---- noteに出走まとめを投稿(手動/外部cron) ----
+        - name: noteに勝負駆け・代謝危機まとめを投稿
+          if: steps.pick.outputs.job == 'notepost'
+          env:
+            NOTE_SESSION_COOKIE: ${{ secrets.NOTE_SESSION_COOKIE }}
+        run: python keirin_note.py --post
         
         # ---- 結果を保存 ----
       - name: スナップショットと投稿履歴をコミット
