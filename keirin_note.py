@@ -21,6 +21,7 @@ from border import rating, class_borders, floor2
 from schedule import load_month, races_on
 from shobugake import load_snapshot, riding_on
 from taisha import load_master, apply_latest, judge, QUOTA
+from race import build_races, parse_today_race, format_race
 from note_client import NoteClient, NoteError
 
 HERE = Path(__file__).parent
@@ -87,8 +88,21 @@ def collect(target: date):
             sections.append({"slot": slot, "label": label,
                              "up": up, "tai": tai})
 
+    # 当日のレース単位のメンバー表(取れた場合だけ)
+    races = build_races(snap, target)
+
+    # 府県は名簿から
+    import csv as _csv
+    pref = {}
+    p = HERE / "roster.csv"
+    if p.exists():
+        with open(p, encoding="utf-8-sig", newline="") as f:
+            for row in _csv.DictReader(f):
+                pref[row["reg_no"].strip().zfill(6)] = row.get("pref", "")
+
     return {"date": target, "s_line": s_line, "t_border": t_border,
-            "sections": sections}
+            "sections": sections, "races": races, "pref": pref,
+            "snap": snap}
 
 
 def build_article(d) -> tuple[str, str]:
@@ -124,6 +138,31 @@ def build_article(d) -> tuple[str, str]:
                     st = f"あと{r['avg'] - d['t_border']}で圏内"
                 lines.append(f"・{r['name']} 3期平均{r['avg']}［{st}］")
         p.append("\n".join(lines))
+
+    # --- 注目選手が出るレースのメンバー表 ---
+    races = d.get("races") or {}
+    if races:
+        marked = set()
+        for sec in d["sections"]:
+            marked |= {r["reg_no"] for r in sec["up"]}
+            marked |= {r["snap"]["reg_no"] for r in sec["tai"]}
+
+        # 注目選手が含まれるレースだけを、レース番号順に
+        hit = sorted(
+            ((k, v) for k, v in races.items()
+             if any(m["reg_no"] in marked for m in v)),
+            key=lambda kv: (kv[0][0], kv[0][1]))
+
+        if hit:
+            p.append("――― 出走メンバー ―――")
+            for (jo, rno), members in hit:
+                names = "・".join(
+                    m["name"] for m in members if m["reg_no"] in marked)
+                block = [f"【{jo} {rno}R】{names}"]
+                block += format_race(members, marked, d.get("pref"))
+                p.append("\n".join(block))
+            p.append("※メンバーは得点順に並べています（車番順ではありません）。"
+                     "府県はラインの参考にどうぞ。")
 
     p.append(f"順位表・ボーダー推移はこちらに常設しています。\n{SITE_URL}")
     p.append("※JKA公式サイトの公開データを個人が自動集計した非公式情報です。"
