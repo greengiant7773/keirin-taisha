@@ -14,7 +14,7 @@ import csv
 import re
 import sys
 import time
-from datetime import date, datetime, timedelta, timezone
+from datetime import date
 from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
 
@@ -39,13 +39,6 @@ HEADERS = {
 }
 
 TEST_ID = "012618"   # 武智尚之。今期得点66.11、出場予定3件が入っている選手
-
-JST = timezone(timedelta(hours=9))
-
-
-def today_jst() -> date:
-  """実行環境はUTCなので、ファイル名は必ず日本時間の日付で決める。"""
-  return datetime.now(JST).date()
 
 
 # ---------------------------------------------------------------- 取得
@@ -123,7 +116,36 @@ def parse(html: str) -> dict:
             for mm in re.finditer(r"(\d{2}/\d{2})\s*[～~]\s*(\d{2}/\d{2})", block):
                 out["entries"].append(("", mm.group(1), mm.group(2)))
 
+    out["today_race"] = extract_today_race(text)
     return out
+
+
+def extract_today_race(text: str) -> str:
+    """開催中のレースから「会場,日付,レース番号」を取る。
+
+    プロフィールに「■開催中のレース」という節があり、
+        平F2  08/30 08/31 09/01
+        A級チャ予選/4R  A級チャ準決/5R
+    のように、日付の並びとレースの並びが対応している。
+    日付とレースの個数が合わない書式もあるので、その時は空にする。
+
+    戻り値は "平F2@08/31/5R" の形。取れなければ空文字。
+    """
+    m = re.search(r"開催中のレース(.{0,300})", text, re.S)
+    if not m:
+        return ""
+    block = m.group(1)
+
+    head = re.match(r"\s*([^\s]+?[ＦFＧG][ＩI１２2３3ＩI]*)", block)
+    jo = head.group(1) if head else ""
+
+    days = re.findall(r"(\d{2}/\d{2})", block)
+    races = re.findall(r"/(\d{1,2})[RＲ]", block)
+    # 未確定の日があると個数が合わないので、先頭から対応させる
+    if not days or not races:
+        return ""
+
+    return ";".join(f"{jo}@{d}/{r}R" for d, r in zip(days, races))
 
 
 SCORE_RE = re.compile(r"^\d{1,3}\.\d{2}$")
@@ -242,7 +264,7 @@ def mode_scrape(grades: list[str]) -> None:
     tg = targets(roster, grades)
     print(f"級班: {'/'.join(grades)}")
     SNAPDIR.mkdir(exist_ok=True)
-    outfile = SNAPDIR / f"{today_jst():%Y%m%d}.csv"
+    outfile = SNAPDIR / f"{date.today():%Y%m%d}.csv"
 
     # 中断しても続きから再開できるようにする
     done = set()
@@ -260,7 +282,7 @@ def mode_scrape(grades: list[str]) -> None:
         w = csv.writer(f)
         if new:
             w.writerow(["reg_no", "name", "grade", "score", "entries",
-                        "racing_now", "starts", "dq", "form_emoji",
+                        "racing_now", "today_race", "starts", "dq", "form_emoji",
                         "form_avg", "retired"])
 
         for i, r in enumerate(todo, 1):
@@ -271,6 +293,7 @@ def mode_scrape(grades: list[str]) -> None:
                     got["score"] if got["score"] is not None else "",
                     ";".join(f"{jo}@{a}-{b}" for jo, a, b in got["entries"]),
                     got.get("racing_now", ""),
+                    got.get("today_race", ""),
                     got.get("starts", 0),
                     got.get("dq", 0),
                     got.get("form_emoji", ""),
