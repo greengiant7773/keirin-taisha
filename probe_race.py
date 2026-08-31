@@ -1,84 +1,92 @@
 """
-出走表の取得元を調べるための使い捨てスクリプト
+出走表(racelist)ページの構造を調べる使い捨てスクリプト
 
-  python probe_race.py 013333
+  python probe_race.py
 
-やること:
-  1. 選手の「出場予定レース」ページを取り、レース番号がどこに書かれているか探す
-  2. 見つかった出走表ページを取り、メンバー表(車番・選手名・得点・府県)を探す
+今日の開催会場を schedule.py から取り、最初の会場の出走表
+  https://keirin.jp/pc/dfw/dataplaza/guest/racelist?KCD=<場>&KBI=<日付>
+を取得して、表の構造(レース番号・車番・選手・得点・府県)をログに出す。
 
-構造が分かったら、この内容を race.py として本実装に起こす。
-ここでは判断せず、素材をログに出すことに徹する。
+構造が分かったら race.py として本実装に起こす。
 """
 
 import re
-import sys
+from datetime import date, datetime, timedelta, timezone
 
 import requests
 from bs4 import BeautifulSoup
 
-HEADERS = {
-    "User-Agent": ("keirin-taisha-bot/0.1 (personal research; low frequency)")
+from schedule import load_month, races_on
+
+HEADERS = {"User-Agent":
+           "keirin-taisha-bot/0.1 (personal research; low frequency)"}
+RACELIST = "https://keirin.jp/pc/dfw/dataplaza/guest/racelist?KCD={}&KBI={}"
+JST = timezone(timedelta(hours=9))
+
+# 競輪場コード(全国共通の場コード)
+KCD = {
+    "函館": 11, "青森": 12, "いわき平": 13,
+    "弥彦": 21, "前橋": 22, "取手": 23, "宇都宮": 24, "大宮": 25,
+    "西武園": 26, "京王閣": 27, "立川": 28,
+    "松戸": 31, "千葉": 32, "川崎": 34, "平塚": 35, "小田原": 36,
+    "伊東": 37, "静岡": 38,
+    "名古屋": 41, "岐阜": 42, "大垣": 43, "豊橋": 44, "富山": 45,
+    "松阪": 46, "四日市": 47,
+    "福井": 51, "奈良": 52, "向日町": 53, "和歌山": 54, "岸和田": 55,
+    "玉野": 61, "広島": 62, "防府": 63,
+    "高松": 71, "小松島": 72, "高知": 73, "松山": 74,
+    "小倉": 81, "久留米": 83, "武雄": 84, "佐世保": 85, "別府": 86,
+    "熊本": 87,
 }
-ENTRY = "https://keirin.jp/mb/racerentryrace?snum={}"
 
 
-def get(url: str) -> BeautifulSoup:
-    r = requests.get(url, headers=HEADERS, timeout=20)
-    r.raise_for_status()
-    r.encoding = r.apparent_encoding
-    print(f"[get] {url} -> {r.status_code} / {len(r.text):,}字")
-    return BeautifulSoup(r.text, "html.parser")
+def today_jst() -> date:
+    return datetime.now(JST).date()
 
 
-def show_tables(soup: BeautifulSoup, limit: int = 4) -> None:
-    """ページ内の表を、中身が分かる程度に出す。"""
-    tables = soup.find_all("table")
-    print(f"  表が {len(tables)} 個")
-    for i, t in enumerate(tables[:limit]):
-        rows = t.find_all("tr")
-        print(f"  --- 表{i} ({len(rows)}行) ---")
-        for tr in rows[:6]:
-            cells = [c.get_text(strip=True)[:14]
-                     for c in tr.find_all(["th", "td"])]
-            if any(cells):
-                print("   ", " | ".join(cells))
-
-
-def main(reg_no: str) -> None:
-    print("=" * 60)
-    print(f"■ 出場予定レース: {reg_no}")
-    soup = get(ENTRY.format(reg_no))
-    show_tables(soup)
-
-    # 「1R」「12R」のような表記と、その周辺のリンクを探す
-    text = soup.get_text(" ", strip=True)
-    races = re.findall(r"(\d{1,2})\s*[Rレース]", text)
-    print(f"  レース番号らしき数字: {sorted(set(races))[:15]}")
-
-    links = [a.get("href") for a in soup.find_all("a", href=True)]
-    cand = [h for h in links
-            if any(k in h for k in ("race", "detail", "syutsuba", "entry"))]
-    print(f"  出走表らしきリンク {len(cand)}件:")
-    for h in cand[:8]:
-        print("   ", h)
-
-    if not cand:
-        print("\n→ リンクが取れなかった。ページ全文の先頭を確認する:")
-        print(text[:600])
+def main() -> None:
+    target = today_jst()
+    kaisai = races_on(load_month(target.year, target.month), target)
+    print(f"{target:%m/%d} の開催: "
+          + " / ".join(f"{k.jo}({k.slot})" for k in kaisai))
+    if not kaisai:
+        print("開催なしのため終了")
         return
 
-    # 最初の候補を開いて、メンバー表が取れるか見る
-    url = cand[0]
-    if url.startswith("/"):
-        url = "https://keirin.jp" + url
-    print("\n" + "=" * 60)
-    print(f"■ 出走表候補: {url}")
-    try:
-        show_tables(get(url), limit=6)
-    except Exception as e:
-        print(f"  取得できず: {e}")
+    for k in kaisai[:2]:
+        code = KCD.get(k.jo)
+        print("\n" + "=" * 60)
+        print(f"■ {k.jo} (KCD={code})")
+        if not code:
+            print("  場コード不明のためスキップ")
+            continue
+
+        url = RACELIST.format(code, f"{target:%Y%m%d}")
+        r = requests.get(url, headers=HEADERS, timeout=20)
+        r.encoding = r.apparent_encoding
+        print(f"  [get] {url} -> {r.status_code} / {len(r.text):,}字")
+        if not r.ok:
+            continue
+        soup = BeautifulSoup(r.text, "html.parser")
+
+        tables = soup.find_all("table")
+        print(f"  表が {len(tables)} 個")
+        for i, t in enumerate(tables[:10]):
+            rows = t.find_all("tr")
+            print(f"  --- 表{i} ({len(rows)}行) ---")
+            for tr in rows[:12]:
+                cells = [c.get_text(strip=True)[:10]
+                         for c in tr.find_all(["th", "td"])]
+                if any(cells):
+                    print("   ", " | ".join(cells))
+
+        text = soup.get_text(" ", strip=True)
+        races = sorted(set(re.findall(r"(\d{1,2})Ｒ|(\d{1,2})R", text)))
+        print(f"  レース番号らしき表記: {races[:15]}")
+        if len(tables) == 0:
+            print("  → 表なし。全文の先頭500字:")
+            print(" ", text[:500])
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else "013333")
+    main()
