@@ -20,7 +20,7 @@ from bs4 import BeautifulSoup
 HEADERS = {
     "User-Agent": ("keirin-taisha-bot/0.1 (personal research; low frequency)")
 }
-ENTRY = "https://keirin.jp/pc/racerentryrace?snum={}"
+ENTRY = "https://keirin.jp/mb/racerentryrace?snum={}"
 
 
 def get(url: str) -> BeautifulSoup:
