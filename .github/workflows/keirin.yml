@@ -18,7 +18,7 @@ on:
         required: true
         default: scrape
         type: choice
-        options: [scrape, generate, post, taisha, site, alert, notepost]
+        options: [scrape, generate, post, taisha, site, alert, notepost, probe]
       slot:
         description: "job=post のときだけ使う時間帯"
         required: false
@@ -81,6 +81,11 @@ jobs:
       - name: スナップショット取得
         if: steps.pick.outputs.job == 'scrape'
         run: python scrape.py all
+
+      # ---- 出走表ページの構造調査(一時・後で消す) ----
+      - name: 出走表ページを調査
+        if: steps.pick.outputs.job == 'probe'
+        run: python probe_race.py 012618
 
       # ---- 翌日分の投稿文を生成だけする(まだ投稿しない) ----
       - name: 翌日分の投稿文を生成
