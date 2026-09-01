@@ -119,6 +119,12 @@ def build_article(d) -> tuple[str, str, str]:
              f"A3代謝ボーダー: {d['t_border'] if d['t_border'] is not None else '未成立'}"
              f"（3期平均・下位{QUOTA}位）")
 
+    p.append("【記号の見方】\n"
+             "🚀 直近の調子が良い（平均着順が上位）\n"
+             "🥺 直近の調子が落ちている\n"
+             "★ 勝負駆け・代謝危機の当該選手\n"
+             "絵文字の横の数字は直近5走の平均着順です。")
+
     for sec in d["sections"]:
         lines = [f"■ {sec['slot']}　{sec['label']}"]
         if sec["up"]:

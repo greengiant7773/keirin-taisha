@@ -61,11 +61,20 @@ def format_race(members: list[dict], marked: set[str],
 
     marked … 注目選手(勝負駆け・代謝危機)の登録番号。★を付ける
     pref   … 登録番号 -> 府県。ラインの推測材料として添える
+
+    調子は絵文字と直近の平均着順を添える(🚀=好調 / 🥺=不調)。
     """
     lines = []
     for r in members:
         star = " ★" if r["reg_no"] in marked else ""
         ken = (pref or {}).get(r["reg_no"], "")
         ken = f"{ken} " if ken else ""
-        lines.append(f"　{r['name']}　{ken}{r['grade']}　{r['score']}{star}")
+
+        # 直近の調子。絵文字と平均着順を添える
+        emoji = r.get("form_emoji") or ""
+        avg = r.get("form_avg") or ""
+        form = f"　{emoji}{avg}" if avg else (f"　{emoji}" if emoji else "")
+
+        lines.append(
+            f"　{r['name']}　{ken}{r['grade']}　{r['score']}{form}{star}")
     return lines
