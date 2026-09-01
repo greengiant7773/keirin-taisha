@@ -97,7 +97,24 @@ class NoteClient:
 
     def save_draft(self, note_id: int, title: str, text: str) -> None:
         """下書きにタイトルと本文を保存する。"""
-        html, length = to_note_html(text)
+        # 有料記事にするときは free_text までを無料、残りを有料にする
+        if price > 0 and free_text:
+            free_html, free_len = to_note_html(free_text)
+            pay_html, pay_len = to_note_html(text)
+            length = free_len + pay_len
+        else:
+            free_html, length = to_note_html(text)
+            pay_html = ""
+
+        # SNSプロモーション(Xでリポストしてくれた人は割引)
+        # kind="twitter_retweet" / discounted_price=0 で「拡散すれば無料」
+        campaigns = []
+        if price > 0 and promo_text:
+            campaigns = [{
+                "kind": "twitter_retweet",
+                "discounted_price": 0,
+                "twitter_status": {"status_text": promo_text},
+            }]
         self._post(
             "/v1/text_notes/draft_save",
             params={"id": note_id, "is_temp_saved": "true"},
@@ -106,7 +123,9 @@ class NoteClient:
         )
 
     def publish(self, note_id: int, title: str, text: str,
-                note_key: str = "", hashtags=None, price: int = 0) -> dict:
+                note_key: str = "", hashtags=None, price: int = 0,
+                free_text: str | None = None, promo_text: str = "",
+                is_refund: bool = False) -> dict:
         """下書きを公開する。
 
         公開は POST /publish ではなく PUT /v1/text_notes/<id>。
@@ -116,7 +135,24 @@ class NoteClient:
         無料で読める部分、pay_body に有料部分を入れる必要があるが、
         ここでは全文無料（price=0）を既定にしている。
         """
-        html, length = to_note_html(text)
+        # 有料記事にするときは free_text までを無料、残りを有料にする
+        if price > 0 and free_text:
+            free_html, free_len = to_note_html(free_text)
+            pay_html, pay_len = to_note_html(text)
+            length = free_len + pay_len
+        else:
+            free_html, length = to_note_html(text)
+            pay_html = ""
+
+        # SNSプロモーション(Xでリポストしてくれた人は割引)
+        # kind="twitter_retweet" / discounted_price=0 で「拡散すれば無料」
+        campaigns = []
+        if price > 0 and promo_text:
+            campaigns = [{
+                "kind": "twitter_retweet",
+                "discounted_price": 0,
+                "twitter_status": {"status_text": promo_text},
+            }]
         # ブラウザが実際に送っている形に厳密に合わせる。
         # separator を "" に、slug を "" にすると 500 になるので注意。
         payload = {
@@ -125,23 +161,23 @@ class NoteClient:
             "disable_comment": False,
             "exclude_from_creator_top": False,
             "exclude_ai_learning_reward": False,
-            "free_body": html,
+            "free_body": free_html,
             "hashtags": [{"hashtag": {"name": h}} for h in (hashtags or [])],
             "image_keys": [],
             "index": False,
-            "is_refund": False,
+            "is_refund": is_refund,
             "limited": False,
             "magazine_ids": [],
             "magazine_keys": [],
             "name": title,
-            "pay_body": "",
+            "pay_body": pay_html,
             "price": price,
             "send_notifications_flag": True,
             "separator": None,
             "slug": f"slug-{note_key}" if note_key else "",
             "status": "published",
             "circle_permissions": [],
-            "discount_campaigns": [],
+            "discount_campaigns": campaigns,
             "lead_form": {"is_active": False, "consent_url": ""},
             "line_add_friend": {"is_active": False, "keyword": "",
                                 "add_friend_url": ""},
@@ -160,6 +196,8 @@ class NoteClient:
 
     def create_and_publish(self, title: str, text: str,
                            hashtags=None, price: int = 0,
+                           free_text: str | None = None, promo_text: str = "",
+                           is_refund: bool = False,
                            retries: int = 3, wait: int = 90) -> dict:
         """下書き作成→保存→公開まで通しで行う。
 
@@ -168,11 +206,14 @@ class NoteClient:
         （下書きを作り直さないので、ゴミ下書きが残らない）。
         """
         note_id, note_key = self.create_empty_draft()
-        self.save_draft(note_id, title, text)
+        whole = f"{free_text}\n\n{text}" if (price > 0 and free_text) else text
+        self.save_draft(note_id, title, whole)
         for attempt in range(retries + 1):
             try:
                 return self.publish(note_id, title, text, note_key=note_key,
-                                    hashtags=hashtags, price=price)
+                                    hashtags=hashtags, price=price,
+                                    free_text=free_text, promo_text=promo_text,
+                                    is_refund=is_refund)
             except NoteError as e:
                 msg = str(e)
                 is_rate = ("しばらく時間" in msg) or (" 422" in msg)

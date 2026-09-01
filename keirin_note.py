@@ -30,6 +30,8 @@ POSTED = HERE / "posts" / "_note_posted.log"
 UP_SPAN = Decimal("0.50")     # 昇級: ラインから何点以内を載せるか(X投稿と同じ)
 TAI_NEAR = Decimal("1.50")    # 代謝: ボーダーから何点以内まで載せるか
 SITE_URL = "https://greengiant7773.github.io/keirin-taisha/"
+PRICE = 100          # 出走メンバー部分の価格。0にすると全文無料
+TAGS = ["競輪", "勝負駆け", "代謝ボーダー"]
 JST = timezone(timedelta(hours=9))
 
 
@@ -105,7 +107,7 @@ def collect(target: date):
             "snap": snap}
 
 
-def build_article(d) -> tuple[str, str]:
+def build_article(d) -> tuple[str, str, str]:
     target = d["date"]
     title = f"【{target.month}/{target.day}】競輪 勝負駆け・代謝危機の出走まとめ"
 
@@ -139,6 +141,10 @@ def build_article(d) -> tuple[str, str]:
                 lines.append(f"・{r['name']} 3期平均{r['avg']}［{st}］")
         p.append("\n".join(lines))
 
+    # ここまでが無料。以降(出走メンバー)を有料にする
+    free_part = "\n\n".join(p)
+    p = []
+
     # --- 注目選手が出るレースのメンバー表 ---
     races = d.get("races") or {}
     if races:
@@ -167,7 +173,7 @@ def build_article(d) -> tuple[str, str]:
     p.append(f"順位表・ボーダー推移はこちらに常設しています。\n{SITE_URL}")
     p.append("※JKA公式サイトの公開データを個人が自動集計した非公式情報です。"
              "級班の確定は公式発表をご確認ください。")
-    return title, "\n\n".join(p)
+    return title, free_part, "\n\n".join(p)
 
 
 def main() -> int:
@@ -189,15 +195,23 @@ def main() -> int:
         print("[info] 本日は当落線上の出走なし。投稿スキップ")
         return 0
 
-    title, body = build_article(d)
-    print(f"--- {title} ({len(body)}字) ---\n{body}\n---")
+    title, free_body, paid_body = build_article(d)
+    print(f"--- {title} (無料{len(free_body)}字 / 有料{len(paid_body)}字) ---")
+    print(free_body)
+    print(f"--- ここから有料({PRICE}円) ---")
+    print(paid_body)
 
     if not do_post:
         print("\nプレビューのみ。投稿するには --post を付けてください")
         return 0
 
     try:
-        NoteClient().create_and_publish(title, body)
+        promo = (f"【{target.month}/{target.day}】競輪の勝負駆け・代謝危機"
+                 f"まとめを公開しました🚴 この投稿をリポストすると"
+                 f"出走メンバーが無料で読めます")
+        NoteClient().create_and_publish(
+            title, paid_body, hashtags=TAGS, price=PRICE,
+            free_text=free_body, promo_text=promo, is_refund=True)
     except NoteError as e:
         print(f"[error] note投稿に失敗: {e}")
         return 1
