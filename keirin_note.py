@@ -31,7 +31,9 @@ UP_SPAN = Decimal("0.50")     # 昇級: ラインから何点以内を載せる�
 TAI_NEAR = Decimal("1.50")    # 代謝: ボーダーから何点以内まで載せるか
 SITE_URL = "https://greengiant7773.github.io/keirin-taisha/"
 PRICE = 100          # 出走メンバー部分の価格。0にすると全文無料
-TAGS = ["競輪", "勝負駆け", "代謝ボーダー"]
+# noteのタグはAPIの形式が未解明(400 hashtags is invalid)。
+# 空にしておく。形式が分かったら戻す。
+TAGS: list[str] = []
 JST = timezone(timedelta(hours=9))
 
 
