@@ -118,19 +118,20 @@ class NoteClient:
         無料で読める部分、pay_body に有料部分を入れる必要があるが、
         ここでは全文無料（price=0）を既定にしている。
         """
-        # noteの有料記事は pay_body を使わない。
-        # free_body に全文を入れ、その途中に separator のUUIDを持つ
-        # 空段落を挟み、そこから先が有料になる。
-        sep_id = str(uuid.uuid4()) if price > 0 else None
+        # 有料記事は free_body(無料部分) と pay_body(有料部分) に分け、
+        # separator には free_body の最終段落のUUIDを指定する。
+        # ブラウザの実通信を観察して判明した形。
+        sep_id = None
         if price > 0 and free_text:
-            free_part, free_len = to_note_html(free_text)
-            paid_part, paid_len = to_note_html(text)
-            marker = f'<p name="{sep_id}" id="{sep_id}"></p>'
-            free_html = free_part + marker + paid_part
-            length = free_len + paid_len
+            free_html, free_len = to_note_html(free_text)
+            pay_html, pay_len = to_note_html(text)
+            length = free_len + pay_len
+            # free_body の最後の段落IDが区切りになる
+            ids = re.findall(r'id="([0-9a-f-]{36})"', free_html)
+            sep_id = ids[-1] if ids else None
         else:
             free_html, length = to_note_html(text)
-        pay_html = ""
+            pay_html = ""
 
         # SNSプロモーション(Xでリポストしてくれた人は割引)
         # kind="twitter_retweet" / discounted_price=0 で「拡散すれば無料」
@@ -139,7 +140,7 @@ class NoteClient:
             campaigns = [{
                 "kind": "twitter_retweet",
                 "discounted_price": 0,
-                "twitter_status": {"status_text": promo_text},
+                "twitter_status_body": promo_text,
             }]
         # ブラウザが実際に送っている形に厳密に合わせる。
         # separator を "" に、slug を "" にすると 500 になるので注意。
