@@ -118,14 +118,19 @@ class NoteClient:
         無料で読める部分、pay_body に有料部分を入れる必要があるが、
         ここでは全文無料（price=0）を既定にしている。
         """
-        # 有料記事にするときは free_text までを無料、残りを有料にする
+        # noteの有料記事は pay_body を使わない。
+        # free_body に全文を入れ、その途中に separator のUUIDを持つ
+        # 空段落を挟み、そこから先が有料になる。
+        sep_id = str(uuid.uuid4()) if price > 0 else None
         if price > 0 and free_text:
-            free_html, free_len = to_note_html(free_text)
-            pay_html, pay_len = to_note_html(text)
-            length = free_len + pay_len
+            free_part, free_len = to_note_html(free_text)
+            paid_part, paid_len = to_note_html(text)
+            marker = f'<p name="{sep_id}" id="{sep_id}"></p>'
+            free_html = free_part + marker + paid_part
+            length = free_len + paid_len
         else:
             free_html, length = to_note_html(text)
-            pay_html = ""
+        pay_html = ""
 
         # SNSプロモーション(Xでリポストしてくれた人は割引)
         # kind="twitter_retweet" / discounted_price=0 で「拡散すれば無料」
@@ -156,7 +161,9 @@ class NoteClient:
             "pay_body": pay_html,
             "price": price,
             "send_notifications_flag": True,
-            "separator": None,
+            # 有料記事は無料部分と有料部分の境界をUUIDで示す。
+            # 無料記事(price=0)では None のままでよい。
+            "separator": sep_id,
             "slug": f"slug-{note_key}" if note_key else "",
             "status": "published",
             "circle_permissions": [],
