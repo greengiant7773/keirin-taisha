@@ -97,24 +97,7 @@ class NoteClient:
 
     def save_draft(self, note_id: int, title: str, text: str) -> None:
         """下書きにタイトルと本文を保存する。"""
-        # 有料記事にするときは free_text までを無料、残りを有料にする
-        if price > 0 and free_text:
-            free_html, free_len = to_note_html(free_text)
-            pay_html, pay_len = to_note_html(text)
-            length = free_len + pay_len
-        else:
-            free_html, length = to_note_html(text)
-            pay_html = ""
-
-        # SNSプロモーション(Xでリポストしてくれた人は割引)
-        # kind="twitter_retweet" / discounted_price=0 で「拡散すれば無料」
-        campaigns = []
-        if price > 0 and promo_text:
-            campaigns = [{
-                "kind": "twitter_retweet",
-                "discounted_price": 0,
-                "twitter_status": {"status_text": promo_text},
-            }]
+        html, length = to_note_html(text)
         self._post(
             "/v1/text_notes/draft_save",
             params={"id": note_id, "is_temp_saved": "true"},

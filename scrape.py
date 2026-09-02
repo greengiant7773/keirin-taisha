@@ -14,7 +14,7 @@ import csv
 import re
 import sys
 import time
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN
 from pathlib import Path
 
@@ -32,6 +32,17 @@ TIMEOUT = 20
 HERE = Path(__file__).parent
 ROSTER = HERE / "roster.csv"
 SNAPDIR = HERE / "snapshots"
+
+JST = timezone(timedelta(hours=9))
+
+
+def today_jst() -> date:
+    """実行環境はUTCなので、日付は必ず日本時間で決める。
+
+    ここを date.today() にすると、日本時間の朝6時(UTC前日21時)の実行が
+    前日のファイル名になり、前日データに追記して「取得済み」でスキップされる。
+    """
+    return datetime.now(JST).date()
 DEBUG = HERE / "debug.html"
 
 HEADERS = {
@@ -264,7 +275,7 @@ def mode_scrape(grades: list[str]) -> None:
     tg = targets(roster, grades)
     print(f"級班: {'/'.join(grades)}")
     SNAPDIR.mkdir(exist_ok=True)
-    outfile = SNAPDIR / f"{date.today():%Y%m%d}.csv"
+    outfile = SNAPDIR / f"{today_jst():%Y%m%d}.csv"
 
     # 中断しても続きから再開できるようにする
     done = set()
