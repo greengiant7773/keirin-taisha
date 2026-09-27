@@ -54,6 +54,7 @@ FIELDS = ["reg_no", "name", "kyuhn_now", "kyuhn_before", "kyuhn_before2", "kyuhn
           "konki", "zenki", "m4", "konki_kido", "zenki_kido", "retire", "grad_period", "fetched"]
 
 NG_STATE = re.compile(r'<script id="ng-state"[^>]*>(.*?)</script>', re.S)
+GRADE_OK = re.compile(r"(?:[SALB][S0-9])?")    # 'A3' 'S1' 'SS' 'L1' または空欄(新人)
 
 
 def today_jst():
@@ -75,6 +76,10 @@ def fetch(reg_no: str) -> str:
         try:
             r = requests.get(URL.format(reg_no), headers=HEADERS, timeout=TIMEOUT)
             r.raise_for_status()
+            # Content-Type に charset が無いので requests は ISO-8859-1 で読んでしまい、
+            # 「Ａ級３班」が「ï¼¡ç´ï¼ç­」に化ける(2026-09-27 Actions で発生)。
+            # ページは <meta charset="utf-8"> なので UTF-8 に固定する。
+            r.encoding = "utf-8"
             return r.text
         except Exception as e:          # 1回だけ待って再試行
             last = e
@@ -95,13 +100,23 @@ def parse(html: str, reg_no: str) -> dict:
     if b.get("racer_no") and b["racer_no"] != reg_no:
         raise ValueError(f"登録番号が違う: {b['racer_no']}")
     t = b.get("racer_ssk_toktn") or {}
+    grades = {k: normalize_grade((b.get(f"kyuhn_cd_{k}") or {}).get("kyuhn_nm", ""))
+              for k in ("now", "before", "before2", "next")}
+    # 級班が読めない(文字化け・表記変更)行は保存しない。既存の行が残る
+    bad = {k: v for k, v in grades.items() if not GRADE_OK.fullmatch(v)}
+    if bad:
+        raise ValueError(f"級班の表記が読めない: {bad}")
+    for k in ("konki_avg_toktn", "zenki_avg_toktn", "m4_avg_toktn"):
+        v = t.get(k, "")
+        if v and not re.fullmatch(r"\d{1,3}(\.\d+)?", v):
+            raise ValueError(f"得点の表記が読めない: {k}={v!r}")
     return {
         "reg_no": reg_no,
         "name": f"{b.get('racer_snm_fam', '')} {b.get('racer_snm_fir', '')}".strip(),
-        "kyuhn_now": normalize_grade((b.get("kyuhn_cd_now") or {}).get("kyuhn_nm", "")),
-        "kyuhn_before": normalize_grade((b.get("kyuhn_cd_before") or {}).get("kyuhn_nm", "")),
-        "kyuhn_before2": normalize_grade((b.get("kyuhn_cd_before2") or {}).get("kyuhn_nm", "")),
-        "kyuhn_next": normalize_grade((b.get("kyuhn_cd_next") or {}).get("kyuhn_nm", "")),
+        "kyuhn_now": grades["now"],
+        "kyuhn_before": grades["before"],
+        "kyuhn_before2": grades["before2"],
+        "kyuhn_next": grades["next"],
         "konki": t.get("konki_avg_toktn", ""),
         "zenki": t.get("zenki_avg_toktn", ""),
         "m4": t.get("m4_avg_toktn", ""),

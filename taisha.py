@@ -42,6 +42,7 @@ OUTDIR = HERE / "posts"
 THRESHOLD = Decimal("70.00")
 QUOTA = 30
 SCORE_OK = re.compile(r"\d{2,3}\.\d{1,2}")   # 公表形式(小数1〜2桁)以外は未確認扱い
+GRADE_OK = re.compile(r"(?:[SALB][S0-9])?")   # yenjoy.csv の級班('A3' 等 / 空欄)
 TOP_N = 8                 # 投稿に載せる人数
 X_LIMIT = 280
 DISCLAIMER = "※非公式・個人集計"
@@ -104,8 +105,13 @@ def judge(master: dict[str, dict], yenjoy: dict[str, dict] | None = None):
     unverified = []     # 手打ち値が公表形式でない(仮置きの疑い)
     short = []          # A3在籍3期未満(前々期 or 前期がA3でない)
     mismatch = []       # マスタの前期がyen-joyと違う
+    broken = []         # yen-joy の行が読めない(文字化け等) → その行は使わない
     for reg, m in master.items():
         y = yenjoy.get(reg)
+        if y and not all(GRADE_OK.fullmatch(y.get(k, "") or "")
+                         for k in ("kyuhn_before", "kyuhn_before2")):
+            broken.append(f"{m['name']}({y.get('kyuhn_before2')!r}/{y.get('kyuhn_before')!r})")
+            y = None
         t2 = m["t2"]
         t2_verified = False
         if y:
@@ -146,6 +152,10 @@ def judge(master: dict[str, dict], yenjoy: dict[str, dict] | None = None):
     if yenjoy:
         print(f"[info] yen-joy データ {len(yenjoy)}人分を使用 "
               f"(最終取得 {max(r.get('fetched', '') for r in yenjoy.values())})")
+    if broken:
+        print(f"[warn] yen-joy の級班が読めないため、その行を使わず判定: {len(broken)}人")
+        for s in broken[:10]:
+            print(f"        {s}")
     if short:
         print(f"[info] A3在籍3期未満のため判定外: {len(short)}人")
         for s in short:
