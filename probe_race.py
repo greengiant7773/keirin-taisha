@@ -1,59 +1,59 @@
 """
-racerprofile(robots.txtで許可済み)に当日のレース番号が
-載っているかを調べる使い捨てスクリプト
+調査用の使い捨てスクリプト(job=probe で実行)
 
-  python probe_race.py
+2026-09-27: yen-joy.net の選手ページが GitHub Actions からだと 404 になる原因調べ。
+ブラウザ(日本の回線)からは 200 で取れている。
+User-Agent の書式で変わるのか、接続元(IP)で変わるのかを切り分ける。
+リクエストは合計6回・2秒間隔。ページの中身は保存しない(状態と長さだけ表示)。
 
-開催中(racing_now)の選手2人のプロフィールを取り、
-「出場予定」「本日」「◯R」等の周辺テキストと表をそのまま出す。
-レース番号が取れるなら、同一(会場,R)の選手を束ねるだけで
-出走メンバー表を許可ページのみで再構成できる。
+  python probe_race.py [登録番号]
 """
 
 import re
+import sys
+import time
 
 import requests
-from bs4 import BeautifulSoup
 
-HEADERS = {"User-Agent":
-           "keirin-taisha-bot/0.1 (personal research; low frequency)"}
-PROFILE = "https://keirin.jp/pc/racerprofile?snum={}"
+SNUM = sys.argv[1] if len(sys.argv) > 1 else "012970"
+PAGE = f"https://www.yen-joy.net/racer/data/{SNUM}"
+UA_NOW = "keirin-taisha-bot/0.1 (personal research; low frequency)"
+UA_STD = "Mozilla/5.0 (compatible; keirin-taisha/0.1; +https://greengiant7773.github.io/keirin-taisha/)"
 
-# 今朝のスナップショットで racing_now が入っていた選手
-TARGETS = ["011341", "011451"]   # 黒崎直行(いわき平) / 重一徳(いわき平)
+CASES = [
+    ("今のUA", PAGE, {"User-Agent": UA_NOW}),
+    ("標準書式のbot UA", PAGE, {"User-Agent": UA_STD}),
+    ("requests既定のUA", PAGE, {}),
+    ("標準書式+Accept", PAGE, {"User-Agent": UA_STD, "Accept": "text/html,application/xhtml+xml",
+                               "Accept-Language": "ja,en;q=0.8"}),
+    ("トップページ", "https://www.yen-joy.net/", {"User-Agent": UA_STD}),
+    ("robots.txt", "https://www.yen-joy.net/robots.txt", {"User-Agent": UA_NOW}),
+]
 
 
 def main() -> None:
-    for snum in TARGETS:
-        print("=" * 60)
-        url = PROFILE.format(snum)
-        r = requests.get(url, headers=HEADERS, timeout=20)
-        r.encoding = r.apparent_encoding
-        print(f"[get] {url} -> {r.status_code} / {len(r.text):,}字")
-        soup = BeautifulSoup(r.text, "html.parser")
-        text = soup.get_text(" ", strip=True)
-
-        # 「R」を含む数字表記
-        rs = re.findall(r"\d{1,2}\s*[RＲ]", text)
-        print("  R表記:", sorted(set(rs))[:20])
-
-        # キーワード周辺を出す
-        for kw in ("出場予定", "本日", "開催中", "出走"):
-            for m in re.finditer(kw, text):
-                s = max(0, m.start() - 20)
-                print(f"  [{kw}] …{text[s:m.start() + 120]}…")
-                break  # 各キーワード最初の1箇所だけ
-
-        # 表の中に R を含むものを出す
-        for i, t in enumerate(soup.find_all("table")):
-            tt = t.get_text(" ", strip=True)
-            if re.search(r"\d{1,2}\s*[RＲ]", tt):
-                print(f"  --- R入りの表{i} ---")
-                for tr in t.find_all("tr")[:8]:
-                    cells = [c.get_text(strip=True)[:12]
-                             for c in tr.find_all(["th", "td"])]
-                    if any(cells):
-                        print("   ", " | ".join(cells))
+    try:
+        ip = requests.get("https://api.ipify.org", timeout=10).text
+    except Exception as e:
+        ip = f"不明({e})"
+    print(f"接続元IP: {ip}\n")
+    for label, url, headers in CASES:
+        try:
+            r = requests.get(url, headers=headers, timeout=20, allow_redirects=True)
+            body = r.text
+            ng = bool(re.search(r'<script id="ng-state"', body))
+            zenki = re.search(r'"zenki_avg_toktn":"([^"]*)"', body)
+            print(f"[{label}] {r.status_code} {len(body):,}字 ng-state={ng} "
+                  f"zenki={zenki.group(1) if zenki else '-'} "
+                  f"server={r.headers.get('server')} x-cache={r.headers.get('x-cache')} "
+                  f"final={r.url}")
+            if r.status_code != 200:
+                title = re.search(r"<title>(.*?)</title>", body, re.S)
+                print(f"    title={title.group(1).strip()[:80] if title else '-'} "
+                      f"先頭={body[:160]!r}")
+        except Exception as e:
+            print(f"[{label}] 例外: {e}")
+        time.sleep(2)
 
 
 if __name__ == "__main__":
