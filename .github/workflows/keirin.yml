@@ -18,7 +18,7 @@ on:
         required: true
         default: scrape
         type: choice
-        options: [scrape, generate, post, taisha, site, alert, notepost, probe]
+        options: [scrape, generate, post, taisha, site, alert, notepost, yenjoy, probe]
       slot:
         description: "job=post のときだけ使う時間帯"
         required: false
@@ -82,6 +82,19 @@ jobs:
         if: steps.pick.outputs.job == 'scrape'
         run: python scrape.py all
 
+      # ---- yen-joy から前期得点・級班履歴(前々期/前期)を取る ----
+      #  scrape のついでに未取得・7日超の選手だけ更新。job=yenjoy なら全員取り直す
+      - name: 前期得点・級班履歴を取得(yen-joy)
+        if: steps.pick.outputs.job == 'scrape' || steps.pick.outputs.job == 'yenjoy'
+        continue-on-error: true     # yen-joy が落ちていても朝のスナップショットは必ずコミットする
+        run: |
+          if [ "${{ steps.pick.outputs.job }}" = "yenjoy" ]; then
+            python yenjoy.py --all
+          else
+            python yenjoy.py
+          fi
+          python yenjoy.py --todo
+
       # ---- 出走表ページの構造調査(一時・後で消す) ----
       - name: 出走表ページを調査
         if: steps.pick.outputs.job == 'probe'
@@ -143,7 +156,7 @@ jobs:
 
       # ---- サイト更新(scrape後・taisha後・手動) ----
       - name: サイトを生成
-        if: steps.pick.outputs.job == 'scrape' || steps.pick.outputs.job == 'taisha' || steps.pick.outputs.job == 'site'
+        if: steps.pick.outputs.job == 'scrape' || steps.pick.outputs.job == 'taisha' || steps.pick.outputs.job == 'site' || steps.pick.outputs.job == 'yenjoy'
         run: python build_site.py
 
       # ---- noteに出走まとめを投稿(手動/外部cron) ----
@@ -160,7 +173,7 @@ jobs:
           git config user.email "actions@github.com"
           # 存在するものだけを個別に追加する。
           # まとめて git add すると、片方が無いだけで全部追加されない
-          for p in snapshots posts posted.log docs; do
+          for p in snapshots posts posted.log docs yenjoy.csv; do
             if [ -e "$p" ]; then git add "$p"; fi
           done
           git status --short
