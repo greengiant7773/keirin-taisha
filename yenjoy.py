@@ -44,6 +44,7 @@ HEADERS = {"User-Agent": "keirin-taisha-bot/0.1 (personal research; low frequenc
 WAIT = 1.0          # 秒。サイトに負荷をかけない
 TIMEOUT = 20
 MAX_AGE_DAYS = 7    # これより古い行は取り直す(級班・前期得点は期の途中では変わらない)
+MAX_STREAK = 5      # この人数だけ連続で失敗したら打ち切る
 
 FIELDS = ["reg_no", "name", "kyuhn_now", "kyuhn_before", "kyuhn_before2", "kyuhn_next",
           "konki", "zenki", "m4", "konki_kido", "zenki_kido", "retire", "grad_period", "fetched"]
@@ -145,17 +146,23 @@ def mode_update(force: bool) -> None:
     todo = [k for k in sorted(tg)
             if force or k not in rows or (rows[k].get("fetched") or "") < limit]
     print(f"対象 {len(tg)}人 / 取得 {len(todo)}人 (間隔{WAIT}秒, 約{len(todo) * WAIT / 60:.0f}分)")
-    ok = ng = 0
+    ok = ng = streak = 0
     for i, k in enumerate(todo, 1):
         try:
             rows[k] = parse(fetch(k), k)
             ok += 1
+            streak = 0
             r = rows[k]
             print(f"[{i}/{len(todo)}] {k} {r['name']} 前々期={r['kyuhn_before2'] or '-'} "
                   f"前期={r['kyuhn_before'] or '-'} 前期得点={r['zenki'] or '-'}")
         except Exception as e:
             ng += 1
+            streak += 1
             print(f"[{i}/{len(todo)}] {k} {tg[k]} 失敗: {e}")
+            if streak >= MAX_STREAK:
+                # 遮断・仕様変更のときに全員分リトライして何十分も粘らない
+                print(f"\n{MAX_STREAK}人連続で失敗したので中止します(取れた分と既存データは残す)")
+                break
         if i % 10 == 0:
             save(rows)          # 途中で落ちても取れた分は残す
         time.sleep(WAIT)
