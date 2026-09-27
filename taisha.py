@@ -67,10 +67,14 @@ def load_master() -> dict[str, dict]:
     t2col = next((c for c in reader.fieldnames if c.startswith("t2_")), None)
     if not (t1col and t2col):
         raise SystemExit(f"{MASTER.name} に t1_ / t2_ で始まる列がありません")
+    # 前期列が何年のどの期か(yen-joy の表記 '2026-1'=前期 / '2026-3'=後期 に合わせる)。
+    # 期が替わったのにマスタが古いままのとき、yen-joy の前期と混ぜないために使う
+    m = re.fullmatch(r"t2_(\d{4})(前期|後期)", t2col)
+    t2_kido = f"{m.group(1)}-{'1' if m.group(2) == '前期' else '3'}" if m else ""
     for r in reader:
         k = r["reg_no"].strip().zfill(6)
         out[k] = {"name": r["name"], "t1": r[t1col].strip(),
-                  "t2": r[t2col].strip(), "cur": r["今期"].strip()}
+                  "t2": r[t2col].strip(), "cur": r["今期"].strip(), "t2_kido": t2_kido}
     return out
 
 
@@ -106,11 +110,15 @@ def judge(master: dict[str, dict], yenjoy: dict[str, dict] | None = None):
     short = []          # A3在籍3期未満(前々期 or 前期がA3でない)
     mismatch = []       # マスタの前期がyen-joyと違う
     broken = []         # yen-joy の行が読めない(文字化け等) → その行は使わない
+    other_term = set()  # yen-joy の前期がマスタの前期列と別の期(期替わり) → 使わない
     for reg, m in master.items():
         y = yenjoy.get(reg)
         if y and not all(GRADE_OK.fullmatch(y.get(k, "") or "")
                          for k in ("kyuhn_before", "kyuhn_before2")):
             broken.append(f"{m['name']}({y.get('kyuhn_before2')!r}/{y.get('kyuhn_before')!r})")
+            y = None
+        if y and m.get("t2_kido") and y.get("zenki_kido") and y["zenki_kido"] != m["t2_kido"]:
+            other_term.add(y["zenki_kido"])
             y = None
         t2 = m["t2"]
         t2_verified = False
@@ -152,6 +160,10 @@ def judge(master: dict[str, dict], yenjoy: dict[str, dict] | None = None):
     if yenjoy:
         print(f"[info] yen-joy データ {len(yenjoy)}人分を使用 "
               f"(最終取得 {max(r.get('fetched', '') for r in yenjoy.values())})")
+    if other_term:
+        t2k = next(iter(master.values()), {}).get("t2_kido")
+        print(f"[warn] yen-joy の前期({'/'.join(sorted(other_term))})がマスタの前期列({t2k})と違う。"
+              f"期が替わったらマスタの列(t1_/t2_)を付け替えること。それまで yen-joy は使わない")
     if broken:
         print(f"[warn] yen-joy の級班が読めないため、その行を使わず判定: {len(broken)}人")
         for s in broken[:10]:
