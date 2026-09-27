@@ -40,7 +40,11 @@ SNAPDIR = HERE / "snapshots"
 OUT = HERE / "yenjoy.csv"
 
 URL = "https://www.yen-joy.net/racer/data/{}"
-HEADERS = {"User-Agent": "keirin-taisha-bot/0.1 (personal research; low frequency)"}
+# クローラーの標準書式(Googlebot 等と同じ "Mozilla/5.0 (compatible; 名前; +URL)")で名乗る。
+# yen-joy は "Mozilla/" で始まらない UA だと robots.txt も含めて全ページ 404
+# ({"message":"Route GET:/index.html not found"}) を返す(2026-09-27 probe で確認)。
+HEADERS = {"User-Agent": "Mozilla/5.0 (compatible; keirin-taisha/0.1; "
+                         "+https://greengiant7773.github.io/keirin-taisha/)"}
 WAIT = 1.0          # 秒。サイトに負荷をかけない
 TIMEOUT = 20
 MAX_AGE_DAYS = 7    # これより古い行は取り直す(級班・前期得点は期の途中では変わらない)
