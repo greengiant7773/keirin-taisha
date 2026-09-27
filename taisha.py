@@ -8,9 +8,12 @@
   対象者 … 直近2期が連続で70点未満、かつ3期平均も70点未満
   消除  … 対象者のうち3期平均の下位30名
   同点  … 規程は「30番目の3期平均を超えたとき回避」。同点は回避できない
+  在籍  … 前々期・前期ともA級3班でなければ判定外(A3在籍3期未満=まだ2期目以下)
 
 データ:
-  history_master.csv … reg_no, name, 2025後期, 2026前期, 今期
+  history_master.csv … reg_no, name, t1_<前々期>, t2_<前期>, 今期  (前々期は手打ち)
+  yenjoy.csv         … yenjoy.py が取る 前期得点・級班履歴(前々期/前期/今期)。
+                       あれば前期得点はこちらを正とし、級班履歴で在籍期数を確認する
   snapshots/最新.csv … 今期得点を最新に差し替えるために使う
 """
 
@@ -32,6 +35,7 @@ def today_jst() -> date:
     return datetime.now(JST).date()
 
 MASTER = HERE / "history_master.csv"
+YENJOY = HERE / "yenjoy.csv"
 SNAPDIR = HERE / "snapshots"
 OUTDIR = HERE / "posts"
 
@@ -55,11 +59,26 @@ def load_master() -> dict[str, dict]:
     if not MASTER.exists():
         raise SystemExit(f"{MASTER.name} がありません")
     out = {}
-    for r in csv.DictReader(open(MASTER, encoding="utf-8-sig")):
+    reader = csv.DictReader(open(MASTER, encoding="utf-8-sig"))
+    # 列名は t1_2025後期 / t2_2026前期 のように期名が付くので、接頭辞で探す
+    # (期が替わって列名を付け直しても動くようにする)
+    t1col = next((c for c in reader.fieldnames if c.startswith("t1_")), None)
+    t2col = next((c for c in reader.fieldnames if c.startswith("t2_")), None)
+    if not (t1col and t2col):
+        raise SystemExit(f"{MASTER.name} に t1_ / t2_ で始まる列がありません")
+    for r in reader:
         k = r["reg_no"].strip().zfill(6)
-        out[k] = {"name": r["name"], "t1": r["t1_2025後期"].strip(),
-                  "t2": r["t2_2026前期"].strip(), "cur": r["今期"].strip()}
+        out[k] = {"name": r["name"], "t1": r[t1col].strip(),
+                  "t2": r[t2col].strip(), "cur": r["今期"].strip()}
     return out
+
+
+def load_yenjoy() -> dict[str, dict]:
+    """yenjoy.py の出力。無ければ空(従来どおりマスタだけで判定)。"""
+    if not YENJOY.exists():
+        return {}
+    return {r["reg_no"].strip().zfill(6): r
+            for r in csv.DictReader(open(YENJOY, encoding="utf-8-sig"))}
 
 
 def apply_latest(master: dict[str, dict]) -> str:
@@ -77,20 +96,46 @@ def apply_latest(master: dict[str, dict]) -> str:
     return snaps[-1].name
 
 
-def judge(master: dict[str, dict]):
+def judge(master: dict[str, dict], yenjoy: dict[str, dict] | None = None):
     """代謝対象者を3期平均の昇順で返す。"""
+    if yenjoy is None:
+        yenjoy = load_yenjoy()
     rows = []
-    unverified = []
+    unverified = []     # 手打ち値が公表形式でない(仮置きの疑い)
+    short = []          # A3在籍3期未満(前々期 or 前期がA3でない)
+    mismatch = []       # マスタの前期がyen-joyと違う
     for reg, m in master.items():
-        if not (m["t1"] and m["t2"] and m["cur"]):
+        y = yenjoy.get(reg)
+        t2 = m["t2"]
+        t2_verified = False
+        if y:
+            if y.get("retire") == "1":
+                continue
+            g1, g2 = y.get("kyuhn_before", ""), y.get("kyuhn_before2", "")
+            # 前々期・前期にA級3班でなかった期があれば、その期の得点は数えない
+            # (＝まだA3で2期目以下)。梶應弘樹(2025後期A2)の指摘で追加
+            if g1 != "A3" or g2 != "A3":
+                short.append(f"{m['name']}(前々期={g2 or '-'}/前期={g1 or '-'})")
+                continue
+            # 前期得点は yen-joy(小数3桁)を切り捨て2桁にしたものを正とする
+            if y.get("zenki"):
+                zt = str(floor2(Decimal(y["zenki"])))
+                if t2 and Decimal(t2) != Decimal(zt):
+                    mismatch.append(f"{m['name']}(マスタ{t2}→{zt})")
+                t2 = zt
+                t2_verified = True
+        if not (m["t1"] and t2 and m["cur"]):
             continue
-        # 競走得点は必ず小数付きで公表される。小数のない値は手打ちの仮置きの
+        # 競走得点は必ず小数付きで公表される。小数のない手打ち値は仮置きの
         # 可能性が高いので、確認が取れるまで判定から外す(誤って名指ししない)。
-        bad = [k for k in ("t1", "t2") if not SCORE_OK.fullmatch(m[k].strip())]
+        # yen-joy で確認できた前期は整数でも本物なので対象外。
+        checks = [("t1", m["t1"])] + ([] if t2_verified else [("t2", t2)])
+        bad = [k for k, v in checks if not SCORE_OK.fullmatch(v.strip())]
         if bad:
-            unverified.append(f"{m['name']}({'/'.join(bad)}={'/'.join(m[k] for k in bad)})")
+            vals = {"t1": m["t1"], "t2": t2}
+            unverified.append(f"{m['name']}({'/'.join(bad)}={'/'.join(vals[k] for k in bad)})")
             continue
-        a, b, c = Decimal(m["t1"]), Decimal(m["t2"]), Decimal(m["cur"])
+        a, b, c = Decimal(m["t1"]), Decimal(t2), Decimal(m["cur"])
         if not (b < THRESHOLD and c < THRESHOLD):
             continue                        # 2期連続で70点未満でなければ対象外
         avg = floor2((a + b + c) / 3)
@@ -98,8 +143,19 @@ def judge(master: dict[str, dict]):
             continue
         rows.append({"reg_no": reg, "name": m["name"], "avg": avg,
                      "t1": a, "t2": b, "cur": c})
+    if yenjoy:
+        print(f"[info] yen-joy データ {len(yenjoy)}人分を使用 "
+              f"(最終取得 {max(r.get('fetched', '') for r in yenjoy.values())})")
+    if short:
+        print(f"[info] A3在籍3期未満のため判定外: {len(short)}人")
+        for s in short:
+            print(f"        {s}")
+    if mismatch:
+        print(f"[warn] マスタの前期得点がyen-joyと不一致(yen-joyを採用): {len(mismatch)}人")
+        for s in mismatch:
+            print(f"        {s}")
     if unverified:
-        print(f"[warn] 前期/前々期の値が未確認(小数なし)のため判定外: {len(unverified)}人")
+        print(f"[warn] 手打ち値が未確認(小数なし)のため判定外: {len(unverified)}人")
         for u in unverified:
             print(f"        {u}")
     rows.sort(key=lambda r: r["avg"])
